@@ -1,4 +1,4 @@
-function [output,cell_area] = Seg(src,MAX_CELL_NUM)
+function [output,cell_area] = Test_Seg(src)
 % Use watershed to segment cells
 % Adustable parameters:
 % alpha:    To find candicate cell regions;
@@ -6,6 +6,8 @@ function [output,cell_area] = Seg(src,MAX_CELL_NUM)
 % max_area: To remove candidate cell whose area is lager than this value;
 % Roundness_Threshold: Select a round cell and remove the space among cells
 %                      since the space isn't round;
+
+close all;
 
 Roundness_Threshold = 0.8; %细胞圆度阈值
 min_area = 2000;           %允许的最小细胞面积
@@ -25,11 +27,13 @@ hsize = [5,5];
 sigma = 2.0;
 h = fspecial('gaussian',hsize,sigma);
 smooth_img = imfilter(img,h);
+% figure;imagesc(smooth_img);axis image;
 
 % Compute gradient distribution
 sobel_h = fspecial('sobel');
 grad = (imfilter(smooth_img,sobel_h,'replicate').^2 + ...
         imfilter(smooth_img,sobel_h','replicate').^2).^0.5;
+% figure; imagesc(grad);axis image;
 
 % Compute the mask image of cell
 alpha = 1.2;
@@ -38,10 +42,12 @@ mask = grad <= cell_grad_value;
 se = strel('disk',3,8);
 mask = imopen(mask,se);
 mask = bwareaopen(~mask,200,8); % remove small objects
+% figure; imagesc(mask);axis image;
 
 D = bwdist(~mask);
 L1 = watershed(D);
 BW = RemoveObject(L1,min_area,max_area);
+% figure;imagesc(BW);
 
 %% Step 2: Segmentation
 % Compute the cell edge
@@ -51,21 +57,23 @@ mask = imclose(mask,se);
 
 w = [1 1 1; 1 -8 1; 1 1 1];
 lap_img = imfilter(img, w, 'replicate');
+% figure;imagesc(lap_img);axis image;
 
 beta = 3.0; % Have little compact on final results!
 sharp_grad = abs(grad - beta*lap_img.*mask);
 sharp_grad = imfilter(sharp_grad,h);
+figure;imagesc(sharp_grad);axis image;
 
 G2 = imimposemin(sharp_grad,~mask);
 L = watershed(G2);
+figure;imagesc(L);axis image;
 
 % Find all cells
-max_label_num = max(max(L));
+cell_num = 0;
+max_label = max(max(L));
+cell_area = zeros(max_label,1);
 Final_Seg = false(size(img));
-cell_index = 0;
-cell_centers = zeros(MAX_CELL_NUM,2);
-cell_area = zeros(MAX_CELL_NUM,1);
-for i=1:max_label_num
+for i=1:max_label
     cell_region = (L==i);
     region_area = sum(sum(cell_region));
     if region_area<min_area || region_area>max_area
@@ -73,33 +81,22 @@ for i=1:max_label_num
     else
         cell_region = imfill(cell_region,'holes');
         cell_region = MakeConvex(cell_region);
+        %imagesc(cell_region);axis image;
         if ~InMargin(cell_region) && (IsRoundness(cell_region) > Roundness_Threshold)
             % Judge the roundness of cell
-            cell_index = cell_index+1;
-            if cell_index > MAX_CELL_NUM
-                disp('Cell num exceed the max num');
-                break;
-            end
-            Final_Seg(cell_region) = cell_index;
-            [cell_y,cell_x] = find(cell_region>0);
-            cell_centers(cell_index,:) = [mean(cell_x),mean(cell_y)];
-            cell_area(cell_index,:) = length(cell_x);
+            cell_num = cell_num+1;
+            cell_area(cell_num) = sum(sum(cell_region));
+            Final_Seg(cell_region) = 1;
         end
     end
 end
-cell_centers = cell_centers(1:cell_index,:);
-cell_area(cell_index+1:end) = nan;
+cell_area = cell_area(1:cell_num); % Final cell area
+% figure;imagesc(Final_Seg);axis image;
 
-label_img = src;
-red = label_img(:,:,1);
-red(Final_Seg>0) = 255;
-label_img(:,:,1) = red;
-image(label_img);hold on;axis off;
-for i=1:size(cell_centers,1)
-    text(cell_centers(i,1),cell_centers(i,2),num2str(i),'FontSize',10);
-end
-hold off;
-current_frame = getframe();
-output = current_frame.cdata;
+output = src;
+red = output(:,:,1);
+red(Final_Seg) = 255;
+output(:,:,1) = red;
+figure;imagesc(output);axis image;
 end
 
